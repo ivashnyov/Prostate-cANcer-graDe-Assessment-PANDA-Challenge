@@ -1,10 +1,10 @@
 import openslide
-import skimage.io
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib
 import os
 import numpy as np
+from .utils import crop_around_mask
 
 
 def plot_count(
@@ -78,7 +78,7 @@ def makeSimpleEDAplots(df):
     plot_count(
         df=df,
         feature='gleason_score',
-        title='gleason_score count and %age plot', 
+        title='gleason_score count and %age plot',
         size=3,
         ax=ax[2])
     plot_relative_distribution(
@@ -108,7 +108,7 @@ def visualizeExampleSingeSlide(
         f'train_images/{slide_id}.tiff'))
     mask = openslide.OpenSlide(os.path.join(
         DATA_DIR,
-        f'train_label_masks/{slide_id}_mask.tiff'))  
+        f'train_label_masks/{slide_id}_mask.tiff'))
     image_patch = image.read_region(
         (0, 0),
         image.level_count - 1,
@@ -166,3 +166,42 @@ def get_desc_image(df, slide_id):
     isup_g = df.isup_grade[df.image_id == slide_id].values[0]
     gl_s = df.gleason_score[df.image_id == slide_id].values[0]
     return dp, isup_g, gl_s
+
+
+def cropRandomExample(slide_id, DATA_DIR, cropsize=512):
+    f, ax = plt.subplots(1, 3)
+    mask = openslide.OpenSlide(os.path.join(
+        DATA_DIR,
+        f'train_label_masks/{slide_id}_mask.tiff'))
+    image = openslide.OpenSlide(os.path.join(
+        DATA_DIR,
+        f'train_images/{slide_id}.tiff'))
+    k = int(image.level_downsamples[-1])
+    mask_full = mask.read_region((0, 0), 2, mask.level_dimensions[-1])
+    mask_full = np.asarray(mask_full).astype(bool)[..., 0]
+    ax[0].imshow(mask_full)
+    crop_coords = crop_around_mask(mask_full, 32, 32)
+    image_slice = image.read_region(
+        (k*crop_coords['x_min'], k*crop_coords['y_min']),
+        0,
+        (cropsize, cropsize))
+    mask_slice = mask.read_region(
+        (k*crop_coords['x_min'], k*crop_coords['y_min']),
+        0,
+        (cropsize, cropsize))
+    ax[1].imshow(np.asarray(image_slice)[..., :3])
+    ax[1].imshow(np.asarray(mask_slice)[..., 0], alpha=0.5)
+    cmap = matplotlib.colors.ListedColormap([
+        'black',
+        'gray',
+        'green',
+        'yellow',
+        'orange',
+        'red'])
+    ax[2].imshow(
+        np.asarray(mask_slice)[..., 0],
+        cmap=cmap,
+        interpolation='nearest',
+        vmin=0,
+        vmax=5)
+    plt.tight_layout()

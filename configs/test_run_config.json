@@ -1,0 +1,36 @@
+{
+    "train_csv": "/data/personal_folders/skolchenko/panda/data_train.csv",
+    "val_csv": "/data/personal_folders/skolchenko/panda/data_val.csv",
+    "train_transformations": "/home/skolchenko/projects/Prostate-cANcer-graDe-Assessment-PANDA-Challenge/configs/light_transforms.json",
+    "val_transformations": "/home/skolchenko/projects/Prostate-cANcer-graDe-Assessment-PANDA-Challenge/configs/light_transforms.json",
+    "train_image_dir": "/data/personal_folders/skolchenko/panda/train_images/",
+    "val_image_dir": "/data/personal_folders/skolchenko/panda/train_images/",
+    "train_mask_dir": "/data/personal_folders/skolchenko/panda/train_label_masks/",
+    "val_mask_dir": "/data/personal_folders/skolchenko/panda/train_label_masks/",
+    "batch_size": 16,
+    "n_workers": 4,
+    "loss_name": "CrossEntropyLoss",
+    "optimizer_name": "Adam", 
+    "scheduler_name": "ReduceLROnPlateau",
+    "model_name": "resnet50",
+    "log_dir": "/data/personal_folders/skolchenko/panda/logs/test_run",
+    "num_epochs": 10,
+    "model_config": {
+        "pretrained": true,
+        "num_classes": 6
+    },
+    "optimizer_config": {
+        "lr": 3e-4,
+        "eps": 1e-3
+    },
+    "scheduler_config": {
+        "factor": 0.5,
+        "patience": 5
+    },
+    "loss_config": {
+
+    },
+    "qwk_config": {
+        "qwk_name": "clf"
+    }
+}

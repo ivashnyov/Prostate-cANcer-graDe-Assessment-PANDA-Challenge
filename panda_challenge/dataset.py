@@ -7,6 +7,7 @@ import torch
 import openslide
 from .utils import crop_around_mask
 import json
+import pandas as pd
 
 
 class ClassifcationDatasetSimpleTrain(Dataset):
@@ -33,7 +34,7 @@ class ClassifcationDatasetSimpleTrain(Dataset):
             Dataset
 
         """
-        self.data_df = data_df
+        self.data_df = pd.read_csv(data_df)
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         self.crop_size = crop_size
@@ -42,6 +43,9 @@ class ClassifcationDatasetSimpleTrain(Dataset):
     def _get_aug(self, arg):
         with open(arg) as f:
             return A.from_dict(json.load(f))
+
+    def __len__(self):
+        return(len(self.data_df))
 
     def __getitem__(self, idx):
         """Will load the mask, get random coordinates around/with the mask,
@@ -72,6 +76,9 @@ class ClassifcationDatasetSimpleTrain(Dataset):
         image_slice = np.asarray(image_slice)[..., :3]
         augmented = self.transforms(image=image_slice)
         image = augmented['image']
+        # Add grade change based on mask values
+        # If only 1,0 in mask we pass grade = 0
+        # If there is cancer tissue, we pass isup_grade from labeling
         data = {'features': tensor_from_rgb_image(image).float(),
                 'targets': torch.tensor(isup_grade)}
         return(data)

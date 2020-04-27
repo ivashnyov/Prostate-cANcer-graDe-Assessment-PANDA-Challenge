@@ -12,7 +12,6 @@ import numpy as np
 from sklearn.metrics import cohen_kappa_score
 from catalyst.core import Callback, CallbackOrder, State
 from collections import defaultdict
-from catalyst.utils import get_activation_fn
 
 
 def runTraining(params, *args, **kwargs):
@@ -88,8 +87,7 @@ def runTraining(params, *args, **kwargs):
         main_metric='loss',
         num_epochs=params['num_epochs'],
         verbose=True,
-        minimize_metric=True,
-        check=True
+        minimize_metric=True
         )
 
 

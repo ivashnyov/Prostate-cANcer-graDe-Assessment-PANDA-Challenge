@@ -88,7 +88,8 @@ def runTraining(params, *args, **kwargs):
         main_metric='loss',
         num_epochs=params['num_epochs'],
         verbose=True,
-        minimize_metric=True
+        minimize_metric=True,
+        check=True
         )
 
 
@@ -267,9 +268,10 @@ class QWKCallback(Callback):
             key: torch.cat(value, dim=0)
             for key, value in self.predictions.items()
         }
+        print(self.input_key)
         targets = self.predictions[self.input_key]
         outputs = self.predictions[self.output_key]
         value = self.metric_fn(
-            targets, outputs
-        )      
+            outputs, targets
+        )
         state.loader_metrics[self.prefix] = value

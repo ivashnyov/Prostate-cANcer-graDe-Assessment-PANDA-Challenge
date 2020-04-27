@@ -8,13 +8,13 @@
     "train_mask_dir": "/data/personal_folders/skolchenko/panda/train_label_masks/",
     "val_mask_dir": "/data/personal_folders/skolchenko/panda/train_label_masks/",
     "batch_size": 16,
-    "n_workers": 4,
+    "n_workers": 32,
     "loss_name": "CrossEntropyLoss",
     "optimizer_name": "Adam", 
     "scheduler_name": "ReduceLROnPlateau",
     "model_name": "resnet50",
     "log_dir": "/data/personal_folders/skolchenko/panda/logs/test_run",
-    "num_epochs": 10,
+    "num_epochs": 30,
     "model_config": {
         "pretrained": true,
         "num_classes": 6

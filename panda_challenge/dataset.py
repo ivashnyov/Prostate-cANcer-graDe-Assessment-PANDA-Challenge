@@ -73,6 +73,14 @@ class ClassifcationDatasetSimpleTrain(Dataset):
             (k*crop_coords['x_min'], k*crop_coords['y_min']),
             0,
             (self.crop_size, self.crop_size))
+        mask_slice = mask.read_region(
+            (k*crop_coords['x_min'], k*crop_coords['y_min']),
+            0,
+            (self.crop_size, self.crop_size))
+        mask_slice = np.asarray(mask_slice)[..., 0]
+        # if all < 2: isup_grade == 0
+        if (mask_slice < 2).all():
+            isup_grade = 0
         image_slice = np.asarray(image_slice)[..., :3]
         augmented = self.transforms(image=image_slice)
         image = augmented['image']

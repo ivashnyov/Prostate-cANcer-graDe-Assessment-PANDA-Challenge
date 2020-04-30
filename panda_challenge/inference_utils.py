@@ -42,7 +42,7 @@ class InferenceSingleImage(Dataset):
         slide_id,
         image_dir,
         crop_size=512,
-            bg_thr=0.95):
+            bg_thr=0.25):
         self.crops = crops
         self.slide_id = slide_id
         self.image_dir = image_dir
@@ -92,6 +92,7 @@ def get_slice_heatmap(
     tile_step=512,
     bsize=16,
     num_workers=4,
+    normalize=True,
     *args,
         **kwargs):
     image = openslide.OpenSlide(os.path.join(
@@ -103,7 +104,11 @@ def get_slice_heatmap(
         tile_size=(crop_size, crop_size),
         tile_step=(tile_step, tile_step),
         weight='mean')
-    merger = CudaTileMerger(tiler.target_shape, 1, tiler.weight)
+    merger = CpuTileMerger(
+        tiler.target_shape,
+        1,
+        tiler.weight,
+        normalize=normalize)
     dataset = InferenceSingleImage(
         tiler.crops,
         slide_id,
@@ -115,18 +120,18 @@ def get_slice_heatmap(
         batch_size=bsize,
         pin_memory=True,
         num_workers=num_workers)
-    pseudo_mask = torch.ones((1, crop_size, crop_size))
+    pseudo_mask = np.ones((1, crop_size, crop_size))
     with torch.no_grad():
         for data_b in tqdm(dataloader, total=len(dataloader)):
             need_processing = data_b['need_to_process']
             if need_processing.sum() > 0:
                 pred_batch = model(data_b['image'][need_processing].cuda())
                 pred_batch = torch.nn.Softmax(dim=1)(pred_batch).cpu().numpy()
-                pred_batch = torch.stack([pseudo_mask*np.argmax(pred_batch[idx])
-                                          for idx in range(pred_batch.shape[0])])
+                pred_batch = np.stack([pseudo_mask*np.argmax(pred_batch[idx])
+                                       for idx in range(pred_batch.shape[0])])
                 merger.integrate_batch(
-                    pred_batch.cuda(),
-                    data_b['coords'][need_processing].cuda())
+                    pred_batch,
+                    data_b['coords'][need_processing].cpu().numpy())
     merged_mask = np.moveaxis(to_numpy(merger.merge()), 0, -1).astype(np.uint8)
     merged_mask = tiler.crop_to_orignal_size(merged_mask)
     merged_mask = cv2.resize(
@@ -134,3 +139,43 @@ def get_slice_heatmap(
         image.level_dimensions[-1],
         interpolation=cv2.INTER_AREA)
     return(merged_mask)
+
+
+class CpuTileMerger:
+    """
+    Helper class to merge final image on CPU
+    """
+
+    def __init__(self, image_shape, channels, weight, normalize=True):
+        """
+        :param image_shape: Shape of the source image
+        :param image_margin:
+        :param weight: Weighting matrix
+        """
+        self.image_height = image_shape[0]
+        self.image_width = image_shape[1]
+        self.normalize = normalize
+        self.weight = np.expand_dims(weight, axis=0)
+        self.channels = channels
+        self.image = np.zeros(
+            (channels, self.image_height, self.image_width))
+        self.norm_mask = np.zeros((1, self.image_height, self.image_width))
+
+    def integrate_batch(self, batch: torch.Tensor, crop_coords):
+        """
+        Accumulates batch of tile predictions
+        :param batch: Predicted tiles
+        :param crop_coords: Corresponding tile crops w.r.t to original image
+        """
+        if len(batch) != len(crop_coords):
+            raise ValueError("Number of images in batch does not correspond to number of coordinates")
+
+        for tile, (x, y, tile_width, tile_height) in zip(batch, crop_coords):
+            self.image[:, y:y + tile_height, x:x + tile_width] += tile * self.weight
+            self.norm_mask[:, y:y + tile_height, x:x + tile_width] += self.weight
+
+    def merge(self) -> torch.Tensor:
+        if self.normalize:
+            return self.image / self.norm_mask
+        else:
+            return self.image

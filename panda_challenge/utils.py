@@ -32,3 +32,40 @@ def crop_around_mask(mask, height, width):
     x_max = x_min + width
     y_max = y_min + height
     return {"x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max}
+
+
+def tile(img, sz=128, N=16, mask=None):
+    shape = img.shape
+    pad0, pad1 = (sz - shape[0] % sz) % sz, (sz - shape[1] % sz) % sz
+    img = np.pad(
+        img,
+        [[pad0//2, pad0-pad0//2], [pad1//2, pad1-pad1//2], [0, 0]],
+        constant_values=255)
+    if mask is not None:
+        mask = np.pad(
+            mask,
+            [[pad0//2, pad0-pad0//2], [pad1//2, pad1-pad1//2], [0, 0]],
+            constant_values=0)
+    img = img.reshape(img.shape[0]//sz, sz, img.shape[1]//sz, sz, 3)
+    img = img.transpose(0, 2, 1, 3, 4).reshape(-1, sz, sz, 3)
+    if mask is not None:
+        mask = mask.reshape(mask.shape[0]//sz, sz, mask.shape[1]//sz, sz, 3)
+        mask = mask.transpose(0, 2, 1, 3, 4).reshape(-1, sz, sz, 3)
+    if len(img) < N:
+        if mask is not None:
+            mask = np.pad(
+                mask,
+                [[0, N-len(img)], [0, 0], [0, 0], [0, 0]],
+                constant_values=0)
+        img = np.pad(
+            img,
+            [[0, N-len(img)], [0, 0], [0, 0], [0, 0]],
+            constant_values=255)
+    idxs = np.argsort(img.reshape(img.shape[0], -1).sum(-1))[:N]
+    img = img[idxs]
+    data = {'img': img}
+    if mask is not None:
+        mask = mask[idxs]
+        mask = [m[..., 0] for m in mask]
+        data['mask'] = mask
+    return data

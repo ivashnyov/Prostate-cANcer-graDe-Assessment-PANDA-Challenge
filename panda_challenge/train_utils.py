@@ -1,4 +1,5 @@
 from .dataset import ClassifcationDatasetSimpleTrain
+from .dataset import ClassifcationDatasetMultiCrop
 import collections
 from catalyst.dl.runner import SupervisedRunner
 from torch.utils.data import DataLoader
@@ -12,6 +13,7 @@ import numpy as np
 from sklearn.metrics import cohen_kappa_score
 from catalyst.core import Callback, CallbackOrder, State
 from collections import defaultdict
+from .models import ClassifcationDatasetMultiCropModel
 
 
 def runTraining(params, *args, **kwargs):
@@ -45,6 +47,87 @@ def runTraining(params, *args, **kwargs):
         params['loss_name'],
         **params['loss_config'])
     model = get_model(
+        params['model_name'],
+        **params['model_config'])
+    model.cuda()
+    optimizer = get_optimizer(
+        params['optimizer_name'],
+        model,
+        **params['optimizer_config'])
+    scheduler = get_scheduler(
+        params['scheduler_name'],
+        optimizer,
+        **params['scheduler_config'])
+
+    loaders = collections.OrderedDict()
+    loaders["train"] = train_loader
+    loaders["valid"] = validation_loader
+    losses = dict({'loss_classification': criterion})
+    runner = SupervisedRunner(
+        input_key='features',
+        input_target_key='targets'
+        )
+    callbacks = [
+        CriterionCallback(
+            input_key="targets",
+            prefix="loss",
+            criterion_key='loss_classification',
+            multiplier=1.0
+            ),
+        QWKCallback(input_key="targets",
+                    **params['qwk_config'])
+        ]
+    log_dir = params['log_dir']
+    runner.train(
+        model=model,
+        criterion=losses,
+        scheduler=scheduler,
+        optimizer=optimizer,
+        callbacks=callbacks,
+        loaders=loaders,
+        logdir=log_dir,
+        main_metric='loss',
+        num_epochs=params['num_epochs'],
+        verbose=True,
+        minimize_metric=True
+        )
+
+
+def runTrainingClassifcationMultiCrop(params, *args, **kwargs):
+    # Quite redundant, but it
+    # will do the trick
+    dataset_train = ClassifcationDatasetMultiCrop(
+        params['train_csv'],
+        params['train_transformations'],
+        params['train_image_dir'],
+        params['train_mask_dir'],
+        params['N'])
+    dataset_val = ClassifcationDatasetMultiCrop(
+        params['val_csv'],
+        params['val_transformations'],
+        params['val_image_dir'],
+        params['val_mask_dir'],
+        params['N'])
+
+    train_loader = DataLoader(
+        dataset_train,
+        batch_size=params['batch_size'],
+        num_workers=params['n_workers'],
+        pin_memory=True,
+        shuffle=True
+    )
+    validation_loader = DataLoader(
+        dataset_val,
+        batch_size=params['batch_size'],
+        num_workers=params['n_workers'],
+        pin_memory=True,
+        shuffle=False
+    )
+
+    criterion = get_loss(
+        params['loss_name'],
+        **params['loss_config'])
+    model = ClassifcationDatasetMultiCropModel(
         params['model_name'],
         **params['model_config'])
     model.cuda()

@@ -6,7 +6,7 @@ import albumentations as A
 from torch.utils.data import DataLoader, Dataset
 from tqdm.auto import tqdm
 from pytorch_toolbelt.utils.torch_utils import to_numpy
-from pytorch_toolbelt.inference.tiles import ImageSlicer, CudaTileMerger
+from pytorch_toolbelt.inference.tiles import ImageSlicer
 import cv2
 
 

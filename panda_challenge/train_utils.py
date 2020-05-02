@@ -101,13 +101,13 @@ def runTrainingClassifcationMultiCrop(params, *args, **kwargs):
         params['train_transformations'],
         params['train_image_dir'],
         params['train_mask_dir'],
-        params['N'])
+        N=params['N'])
     dataset_val = ClassifcationDatasetMultiCrop(
         params['val_csv'],
         params['val_transformations'],
         params['val_image_dir'],
         params['val_mask_dir'],
-        params['N'])
+        N=params['N'])
 
     train_loader = DataLoader(
         dataset_train,

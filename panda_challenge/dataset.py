@@ -102,7 +102,7 @@ class ClassifcationDatasetMultiCrop(Dataset):
         mean=np.array([0.90949707, 0.8188697, 0.87795304]),
         std=np.array([0.36357649, 0.49984502, 0.40477625]),
         N=16,
-            crop_size=512):
+            crop_size=128):
         """Prepares pytorch dataset for training
         Generates tiles from coarse slide and returns it
 
@@ -111,7 +111,7 @@ class ClassifcationDatasetMultiCrop(Dataset):
             augmentations (albumentations.compose): augmentations.
             image_dir (str): folder with images.
             mask_dir (str): folder with masks.
-            crop_size(int): crop size around mask. Default: 512
+            crop_size(int): crop size around mask. Default: 128
         Returns
             Dataset
 
@@ -158,7 +158,7 @@ class ClassifcationDatasetMultiCrop(Dataset):
             image.level_dimensions[-1])
         img = np.asarray(img)[..., :3]
         mask = np.asarray(mask)[..., :3]
-        tiles = tile(img, mask=mask, N=self.N)
+        tiles = tile(img, mask=mask, N=self.N, sz=self.crop_size)
         tiled_images = (1.0 - tiles['img']/255.0)
         tiled_images = (tiled_images - self.mean)/self.std
         assert len(tiled_images) == self.N
@@ -173,4 +173,70 @@ class ClassifcationDatasetMultiCrop(Dataset):
         tiled_images = np.stack(tiled_images).transpose(0, 3, 1, 2)
         data = {'features': torch.from_numpy(tiled_images).float(),
                 'targets': torch.tensor(isup_grade)}
+        return(data)
+
+
+class ClassifcationMultiCropInferenceDataset(Dataset):
+    def __init__(
+        self,
+        data_df,
+        transforms,
+        image_dir,
+        mean=np.array([0.90949707, 0.8188697, 0.87795304]),
+        std=np.array([0.36357649, 0.49984502, 0.40477625]),
+        N=16,
+            crop_size=128):
+        """Prepares pytorch dataset for training
+        Generates tiles from coarse slide and returns it
+
+        Args:
+            data_df (pd.DataFrame): data.frame with slides id and labels.
+            augmentations (albumentations.compose): augmentations.
+            image_dir (str): folder with images.
+            mask_dir (str): folder with masks.
+            crop_size(int): crop size around mask. Default: 128
+        Returns
+            Dataset
+
+        """
+        self.data_df = pd.read_csv(data_df)
+        self.image_dir = image_dir
+        self.crop_size = crop_size
+        self.N = N
+        self.transforms = transforms
+        self.mean = mean
+        self.std = std
+
+    def __len__(self):
+        return(len(self.data_df))
+
+    def __getitem__(self, idx):
+        """Will load the mask, get random coordinates around/with the mask,
+        load the image by coordinates
+        """
+        slide_id = self.data_df.image_id.values[idx]
+        image = openslide.OpenSlide(os.path.join(
+            self.image_dir,
+            f'{slide_id}.tiff'))
+        img = image.read_region(
+            (0, 0),
+            image.level_count - 1,
+            image.level_dimensions[-1])
+        img = np.asarray(img)[..., :3]
+        tiles = tile(img, N=self.N, sz=self.crop_size)
+        tiled_images = (1.0 - tiles['img']/255.0)
+        tiled_images = (tiled_images - self.mean)/self.std
+        assert len(tiled_images) == self.N
+
+        if self.transforms is not None:
+            target_names = ['image' + str(i) if i > 0 else 'image'
+                            for i in range(len(tiled_images))]
+            tiled_images = dict(zip(
+                target_names,
+                tiled_images))
+            augmented = self.transforms(**tiled_images)
+            tiled_images = [augmented[target] for target in target_names]
+
+        tiled_images = np.stack(tiled_images).transpose(0, 3, 1, 2)
+        data = {'features': torch.from_numpy(tiled_images).float()}
         return(data)

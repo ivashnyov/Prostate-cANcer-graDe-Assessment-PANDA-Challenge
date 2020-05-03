@@ -21,12 +21,14 @@ def runTraining(params, *args, **kwargs):
         params['train_csv'],
         params['train_transformations'],
         params['train_image_dir'],
-        params['train_mask_dir'])
+        params['train_mask_dir'],
+        **params['dataset_config'])
     dataset_val = ClassifcationDatasetSimpleTrain(
         params['val_csv'],
         params['val_transformations'],
         params['val_image_dir'],
-        params['val_mask_dir'])
+        params['val_mask_dir'],
+        **params['dataset_config'])
 
     train_loader = DataLoader(
         dataset_train,
@@ -101,13 +103,13 @@ def runTrainingClassifcationMultiCrop(params, *args, **kwargs):
         params['train_transformations'],
         params['train_image_dir'],
         params['train_mask_dir'],
-        N=params['N'])
+        **params['dataset_config'])
     dataset_val = ClassifcationDatasetMultiCrop(
         params['val_csv'],
         params['val_transformations'],
         params['val_image_dir'],
         params['val_mask_dir'],
-        N=params['N'])
+        **params['dataset_config'])
 
     train_loader = DataLoader(
         dataset_train,
@@ -177,6 +179,10 @@ def runTrainingClassifcationMultiCrop(params, *args, **kwargs):
 def get_loss(loss_name, **kwarg):
     if loss_name == 'CrossEntropyLoss':
         return torch.nn.CrossEntropyLoss(**kwarg)
+    elif loss_name == 'MSE':
+        return torch.nn.MSELoss(**kwarg)
+    elif loss_name == 'SmoothL1Loss':
+        return torch.nn.SmoothL1Loss(**kwarg)
     else:
         raise NotImplementedError
 

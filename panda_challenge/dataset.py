@@ -20,7 +20,9 @@ class ClassifcationDatasetSimpleTrain(Dataset):
         transforms_json,
         image_dir,
         mask_dir,
-            crop_size=512):
+        crop_size=512,
+        *args,
+            **kwargs):
         """Prepares pytorch dataset for training
         Crops around mask and returns ISUP score for the slide
 
@@ -102,7 +104,11 @@ class ClassifcationDatasetMultiCrop(Dataset):
         mean=np.array([0.90949707, 0.8188697, 0.87795304]),
         std=np.array([0.36357649, 0.49984502, 0.40477625]),
         N=16,
-            crop_size=128):
+        zoom_level=2,
+        crop_size=128,
+        output_type='classification',
+        *args,
+            **kwargs):
         """Prepares pytorch dataset for training
         Generates tiles from coarse slide and returns it
 
@@ -124,6 +130,8 @@ class ClassifcationDatasetMultiCrop(Dataset):
         self.transforms = self._get_aug(transforms_json)
         self.mean = mean
         self.std = std
+        self.zoom_level = zoom_level
+        self.output_type = output_type
 
     def _get_aug(self, arg):
         with open(arg) as f:
@@ -150,12 +158,12 @@ class ClassifcationDatasetMultiCrop(Dataset):
             f'{slide_id}.tiff'))
         mask = mask.read_region(
             (0, 0),
-            mask.level_count - 1,
-            mask.level_dimensions[-1])
+            self.zoom_level,
+            mask.level_dimensions[self.zoom_level])
         img = image.read_region(
             (0, 0),
-            image.level_count - 1,
-            image.level_dimensions[-1])
+            self.zoom_level,
+            image.level_dimensions[self.zoom_level])
         img = np.asarray(img)[..., :3]
         mask = np.asarray(mask)[..., :3]
         tiles = tile(img, mask=mask, N=self.N, sz=self.crop_size)
@@ -171,8 +179,19 @@ class ClassifcationDatasetMultiCrop(Dataset):
 
         tiled_images = [augmented[target] for target in target_names]
         tiled_images = np.stack(tiled_images).transpose(0, 3, 1, 2)
+        # Fix outputs for each of the tasks
+        if self.output_type == 'regression':
+            isup_grade = np.expand_dims(isup_grade, 0)
+            isup_grade = torch.from_numpy(isup_grade).float()
+        elif self.output_type == 'classification':
+            isup_grade = torch.tensor(isup_grade)
+        elif self.output_type == 'ordinal':
+            raise NotImplementedError
+        else:
+            raise NotImplementedError
+
         data = {'features': torch.from_numpy(tiled_images).float(),
-                'targets': torch.tensor(isup_grade)}
+                'targets': isup_grade}
         return(data)
 
 
@@ -185,7 +204,10 @@ class ClassifcationMultiCropInferenceDataset(Dataset):
         mean=np.array([0.90949707, 0.8188697, 0.87795304]),
         std=np.array([0.36357649, 0.49984502, 0.40477625]),
         N=16,
-            crop_size=128):
+        zoom_level=2,
+        crop_size=128,
+        *args,
+            **kwargs):
         """Prepares pytorch dataset for training
         Generates tiles from coarse slide and returns it
 
@@ -206,6 +228,7 @@ class ClassifcationMultiCropInferenceDataset(Dataset):
         self.transforms = transforms
         self.mean = mean
         self.std = std
+        self.zoom_level = zoom_level
 
     def __len__(self):
         return(len(self.data_df))
@@ -220,8 +243,8 @@ class ClassifcationMultiCropInferenceDataset(Dataset):
             f'{slide_id}.tiff'))
         img = image.read_region(
             (0, 0),
-            image.level_count - 1,
-            image.level_dimensions[-1])
+            self.zoom_level,
+            image.level_dimensions[self.zoom_level])
         img = np.asarray(img)[..., :3]
         tiles = tile(img, N=self.N, sz=self.crop_size)
         tiled_images = (1.0 - tiles['img']/255.0)

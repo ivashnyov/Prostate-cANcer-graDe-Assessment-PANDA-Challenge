@@ -9,16 +9,15 @@
     "val_mask_dir": "/data/personal_folders/skolchenko/panda/train_label_masks/",
     "batch_size": 8,
     "n_workers": 32,
-    "N": 16,
-    "loss_name": "CrossEntropyLoss",
+    "loss_name": "MSE",
     "optimizer_name": "AdamW", 
     "scheduler_name": "ReduceLROnPlateau",
     "model_name": "resnet50",
-    "log_dir": "/data/personal_folders/skolchenko/panda/logs/test_run_multicrop",
+    "log_dir": "/data/personal_folders/skolchenko/panda/logs/test_run_multicrop_regression",
     "num_epochs": 50,
     "model_config": {
         "pretrained": true,
-        "num_classes": 6
+        "num_classes": 1
     },
     "optimizer_config": {
         "lr": 3e-4,
@@ -32,6 +31,10 @@
 
     },
     "qwk_config": {
-        "qwk_name": "clf"
+        "qwk_name": "simple"
+    },
+    "dataset_config": {
+        "output_type": "regression",
+        "N": 16
     }
 }

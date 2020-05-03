@@ -32,3 +32,6 @@ class ClassifcationDatasetMultiCropModel(nn.Module):
         # should be: bs x C x N*4 x 4
         x = self.head(x)
         return x
+
+
+

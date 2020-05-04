@@ -14,9 +14,13 @@ from sklearn.metrics import cohen_kappa_score
 from catalyst.core import Callback, CallbackOrder, State
 from collections import defaultdict
 from .models import ClassifcationDatasetMultiCropModel
+from catalyst.utils import prepare_cudnn, set_global_seed
 
 
 def runTraining(params, *args, **kwargs):
+    SEED = 42
+    set_global_seed(SEED)
+    prepare_cudnn(deterministic=True)
     dataset_train = ClassifcationDatasetSimpleTrain(
         params['train_csv'],
         params['train_transformations'],
@@ -98,6 +102,9 @@ def runTraining(params, *args, **kwargs):
 def runTrainingClassifcationMultiCrop(params, *args, **kwargs):
     # Quite redundant, but it
     # will do the trick
+    SEED = 42
+    set_global_seed(SEED)
+    prepare_cudnn(deterministic=True)
     dataset_train = ClassifcationDatasetMultiCrop(
         params['train_csv'],
         params['train_transformations'],
@@ -355,7 +362,6 @@ class QWKCallback(Callback):
             key: torch.cat(value, dim=0)
             for key, value in self.predictions.items()
         }
-        print(self.input_key)
         targets = self.predictions[self.input_key]
         outputs = self.predictions[self.output_key]
         value = self.metric_fn(

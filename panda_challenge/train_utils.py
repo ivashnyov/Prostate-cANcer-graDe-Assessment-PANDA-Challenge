@@ -14,6 +14,7 @@ from sklearn.metrics import cohen_kappa_score
 from catalyst.core import Callback, CallbackOrder, State
 from collections import defaultdict
 from .models import ClassifcationDatasetMultiCropModel
+from .losses import QWKLoss
 from catalyst.utils import prepare_cudnn, set_global_seed
 
 
@@ -190,6 +191,10 @@ def get_loss(loss_name, **kwarg):
         return torch.nn.MSELoss(**kwarg)
     elif loss_name == 'SmoothL1Loss':
         return torch.nn.SmoothL1Loss(**kwarg)
+    elif loss_name == 'BCEWithLogitsLoss':
+        return torch.nn.BCEWithLogitsLoss(**kwarg)
+    elif loss_name == 'QWKLoss':
+        return QWKLoss(**kwarg)
     else:
         raise NotImplementedError
 
@@ -315,6 +320,34 @@ def quadratic_weighted_kappa_ord(
     return score
 
 
+def quadratic_weighted_kappa_ohe_class(
+    outputs: torch.Tensor,
+    targets: torch.Tensor,
+    threshold: float = None,
+    activation: str = None
+):
+    """
+    Args:
+        outputs (torch.Tensor): A list of predicted elements
+        targets (torch.Tensor):  A list of elements that are to be predicted
+        activation (str): An torch.nn activation applied to the outputs.
+            Must be one of ["none", "Sigmoid", "Softmax2d"]
+    Returns:
+        float: quadratic kappa score
+    """
+    activation_fn = torch.sigmoid
+    outputs = activation_fn(outputs)
+    targets = torch.argmax(targets, dim=1)
+    outputs = torch.argmax(outputs, dim=1)
+    outputs = outputs.detach().cpu().numpy()
+    targets = targets.detach().cpu().numpy()
+    score = cohen_kappa_score(
+        outputs,
+        targets,
+        weights='quadratic')
+    return score
+
+
 def get_qwk_mf_by_name(qwk_name):
     if qwk_name == 'ordinal':
         return quadratic_weighted_kappa_ord
@@ -324,6 +357,8 @@ def get_qwk_mf_by_name(qwk_name):
         return quadratic_weighted_kappa_clf
     elif qwk_name == 'simple':
         return quadratic_weighted_kappa
+    elif qwk_name == 'ohe_class':
+        return quadratic_weighted_kappa_ohe_class
     else:
         raise NotImplementedError
 

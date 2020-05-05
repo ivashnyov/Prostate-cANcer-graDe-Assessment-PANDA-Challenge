@@ -106,6 +106,7 @@ class ClassifcationDatasetMultiCrop(Dataset):
         N=16,
         zoom_level=2,
         crop_size=128,
+        label_smoothing=0.15,
         output_type='classification',
         *args,
             **kwargs):
@@ -132,6 +133,7 @@ class ClassifcationDatasetMultiCrop(Dataset):
         self.std = std
         self.zoom_level = zoom_level
         self.output_type = output_type
+        self.label_smoothing = label_smoothing
 
     def _get_aug(self, arg):
         with open(arg) as f:
@@ -167,19 +169,21 @@ class ClassifcationDatasetMultiCrop(Dataset):
         img = np.asarray(img)[..., :3]
         mask = np.asarray(mask)[..., :3]
         tiles = tile(img, mask=mask, N=self.N, sz=self.crop_size)
-        tiled_images = (1.0 - tiles['img']/255.0)
-        tiled_images = (tiled_images - self.mean)/self.std
-        assert len(tiled_images) == self.N
+        tiled_images = tiles['img']
         target_names = ['image' + str(i) if i > 0 else 'image'
                         for i in range(len(tiled_images))]
         tiled_images = dict(zip(
             target_names,
             tiled_images))
         augmented = self.transforms(**tiled_images)
-
         tiled_images = [augmented[target] for target in target_names]
-        tiled_images = np.stack(tiled_images).transpose(0, 3, 1, 2)
+        tiled_images = np.stack(tiled_images)
+        tiled_images = (1.0 - tiled_images/255.0)
+        tiled_images = (tiled_images - self.mean)/self.std
+        assert len(tiled_images) == self.N
+        tiled_images = tiled_images.transpose(0, 3, 1, 2)
         # Fix outputs for each of the tasks
+        # To do: move as separate function
         if self.output_type == 'regression':
             isup_grade = np.expand_dims(isup_grade, 0)
             isup_grade = torch.from_numpy(isup_grade).float()
@@ -187,6 +191,17 @@ class ClassifcationDatasetMultiCrop(Dataset):
             isup_grade = torch.tensor(isup_grade)
         elif self.output_type == 'ordinal':
             raise NotImplementedError
+        elif self.output_type == 'ohe_classification':
+            '''
+            We can make it asymetric if we use the assumption that
+            errors 4-5 are more likely than errors 0-5
+            '''
+            ohe_isup_grade = np.zeros(6)
+            ohe_isup_grade[isup_grade] = 1
+            isup_grade = ohe_isup_grade
+            isup_grade = isup_grade * (1 - self.label_smoothing) + \
+                self.label_smoothing / 6
+            isup_grade = torch.from_numpy(isup_grade).float()
         else:
             raise NotImplementedError
 

@@ -1,9 +1,12 @@
 from .dataset import ClassifcationDatasetSimpleTrain
 from .dataset import ClassifcationDatasetMultiCrop
+from .dataset import ClassifcationDatasetMultiCropMultiHead
 import collections
 from catalyst.dl.runner import SupervisedRunner
 from torch.utils.data import DataLoader
 from catalyst.dl.callbacks import CriterionCallback
+from catalyst.core.callbacks import EarlyStoppingCallback
+from catalyst.core.callbacks import MetricAggregationCallback
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
@@ -13,7 +16,8 @@ import numpy as np
 from sklearn.metrics import cohen_kappa_score
 from catalyst.core import Callback, CallbackOrder, State
 from collections import defaultdict
-from .models import ClassifcationDatasetMultiCropModel
+from .models import ClassifcationMultiCropModel
+from .models import ClassifcationMultiCropModelMultiHead
 from .losses import QWKLoss
 from catalyst.utils import prepare_cudnn, set_global_seed
 
@@ -137,7 +141,7 @@ def runTrainingClassifcationMultiCrop(params, *args, **kwargs):
     criterion = get_loss(
         params['loss_name'],
         **params['loss_config'])
-    model = ClassifcationDatasetMultiCropModel(
+    model = ClassifcationMultiCropModel(
         params['model_name'],
         **params['model_config'])
     model.cuda()
@@ -167,6 +171,132 @@ def runTrainingClassifcationMultiCrop(params, *args, **kwargs):
             ),
         QWKCallback(input_key="targets",
                     **params['qwk_config'])
+        ]
+    log_dir = params['log_dir']
+    runner.train(
+        model=model,
+        criterion=losses,
+        scheduler=scheduler,
+        optimizer=optimizer,
+        callbacks=callbacks,
+        loaders=loaders,
+        logdir=log_dir,
+        main_metric='loss',
+        num_epochs=params['num_epochs'],
+        verbose=True,
+        minimize_metric=True
+        )
+
+
+def runTrainingClassifcationMultiCropMultiHead(params, *args, **kwargs):
+    # Quite redundant, but it
+    # will do the trick
+    SEED = 42
+    set_global_seed(SEED)
+    prepare_cudnn(deterministic=True)
+    dataset_train = ClassifcationDatasetMultiCropMultiHead(
+        params['train_csv'],
+        params['train_transformations'],
+        params['train_image_dir'],
+        params['train_mask_dir'],
+        **params['dataset_config'])
+    dataset_val = ClassifcationDatasetMultiCropMultiHead(
+        params['val_csv'],
+        params['val_transformations'],
+        params['val_image_dir'],
+        params['val_mask_dir'],
+        **params['dataset_config'])
+
+    train_loader = DataLoader(
+        dataset_train,
+        batch_size=params['batch_size'],
+        num_workers=params['n_workers'],
+        pin_memory=True,
+        shuffle=True
+    )
+    validation_loader = DataLoader(
+        dataset_val,
+        batch_size=params['batch_size'],
+        num_workers=params['n_workers'],
+        pin_memory=True,
+        shuffle=False
+    )
+
+    criterion = get_loss(
+        params['loss_name'],
+        **params['loss_config'])
+    model = ClassifcationMultiCropModelMultiHead(
+        params['model_name'],
+        **params['model_config'])
+    model.cuda()
+    optimizer = get_optimizer(
+        params['optimizer_name'],
+        model,
+        **params['optimizer_config'])
+    scheduler = get_scheduler(
+        params['scheduler_name'],
+        optimizer,
+        **params['scheduler_config'])
+
+    loaders = collections.OrderedDict()
+    loaders["train"] = train_loader
+    loaders["valid"] = validation_loader
+    losses = dict({
+        'loss_isup': criterion,
+        'loss_gleason_major': criterion,
+        'loss_gleason_minor': criterion
+        })
+    runner = SupervisedRunner(
+        input_key='features',
+        input_target_key=['targets_isup', 'targets_gleason_major', 'targets_gleason_minor'],
+        output_key=["logits_isup", "logits_gleason_major", "logits_gleason_minor"]
+        )
+    callbacks = [
+        CriterionCallback(
+            input_key="targets_isup",
+            prefix="loss_isup",
+            output_key="logits_isup",
+            criterion_key='loss_isup',
+            multiplier=1.0
+            ),
+        CriterionCallback(
+            input_key="targets_gleason_major",
+            prefix="loss_gleason_major",
+            output_key="logits_gleason_major",
+            criterion_key='loss_gleason_major',
+            multiplier=1.0
+            ),
+        CriterionCallback(
+            input_key="targets_gleason_minor",
+            prefix="loss_gleason_minor",
+            output_key="logits_gleason_minor",
+            criterion_key='loss_gleason_minor',
+            multiplier=1.0
+            ),
+        QWKCallback(
+            input_key="targets_isup",
+            output_key="logits_isup",
+            prefix='qwk_isup',
+            **params['qwk_config']),
+        QWKCallback(
+            input_key="targets_gleason_major",
+            output_key="logits_gleason_major",
+            prefix='qwk_gleason_major',
+            **params['qwk_config']),
+        QWKCallback(
+            input_key="targets_gleason_minor",
+            output_key="logits_gleason_minor",
+            prefix='qwk_gleason_minor',
+            **params['qwk_config']),
+        MetricAggregationCallback(
+            prefix="loss",
+            mode="weighted_sum",
+            metrics={
+                "loss_isup": 1.0,
+                "loss_gleason_major": 0.75,
+                "loss_gleason_minor": 0.75},
+            ),
+        EarlyStoppingCallback(patience=15)
         ]
     log_dir = params['log_dir']
     runner.train(

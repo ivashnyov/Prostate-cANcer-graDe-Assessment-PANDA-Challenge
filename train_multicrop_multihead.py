@@ -1,4 +1,4 @@
-from panda_challenge.train_utils import runTrainingClassifcationMultiCropMultiHead
+from panda_challenge import runTrainingClassifcationMultiCropMultiHead
 import json
 import sys
 

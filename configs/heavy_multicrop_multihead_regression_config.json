@@ -1,0 +1,44 @@
+{
+    "train_csv": "/data/personal_folders/skolchenko/panda/data_train.csv",
+    "val_csv": "/data/personal_folders/skolchenko/panda/data_val.csv",
+    "train_transformations": "/home/skolchenko/projects/Prostate-cANcer-graDe-Assessment-PANDA-Challenge/configs/heavy_transforms_noNorm.json",
+    "val_transformations": "/home/skolchenko/projects/Prostate-cANcer-graDe-Assessment-PANDA-Challenge/configs/validation_augs_noNorm.json",
+    "train_image_dir": "/data/personal_folders/skolchenko/panda/train_images/",
+    "val_image_dir": "/data/personal_folders/skolchenko/panda/train_images/",
+    "train_mask_dir": "/data/personal_folders/skolchenko/panda/train_label_masks/",
+    "val_mask_dir": "/data/personal_folders/skolchenko/panda/train_label_masks/",
+    "batch_size": 4,
+    "n_workers": 32,
+    "loss_name": "MSE",
+    "optimizer_name": "AdamW", 
+    "scheduler_name": "ReduceLROnPlateau",
+    "model_name": "tf_efficientnet_b3_ns",
+    "log_dir": "/data/personal_folders/skolchenko/panda/logs/heavy_multicrop_multihead_regression",
+    "num_epochs": 50,
+    "model_config": {
+        "pretrained": true,
+        "num_classes_isup": 1,
+        "num_gleason_major": 1,
+        "num_gleason_minor": 1
+    },
+    "optimizer_config": {
+        "lr": 3e-4,
+        "eps": 1e-3
+    },
+    "scheduler_config": {
+        "factor": 0.5,
+        "patience": 5
+    },
+    "loss_config": {
+
+    },
+    "qwk_config": {
+        "qwk_name": "simple"
+    },
+    "dataset_config": {
+        "output_type": "regression",
+        "N": 8,
+        "zoom_level": 1, 
+        "crop_size": 256
+    }
+}

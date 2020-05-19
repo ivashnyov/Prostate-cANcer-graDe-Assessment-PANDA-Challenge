@@ -4,3 +4,4 @@ from panda_challenge.dataset import ClassifcationDatasetMultiCropMultiHead
 from panda_challenge.dataset import ClassifcationDatasetMultiCrop
 from panda_challenge.models import ClassifcationMultiCropModel
 from panda_challenge.models import ClassifcationMultiCropModelMultiHead
+from panda_challenge.dataset import MetricLearningAndClassifcationDatasetMultiCrop

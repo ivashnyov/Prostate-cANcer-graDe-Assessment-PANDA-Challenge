@@ -20,6 +20,7 @@ from .models import ClassifcationMultiCropModel
 from .models import ClassifcationMultiCropModelMultiHead
 from .losses import QWKLoss
 from catalyst.utils import prepare_cudnn, set_global_seed
+from catalyst.contrib.nn.optimizers import RAdam, Lookahead
 
 
 def runTraining(params, *args, **kwargs):
@@ -343,6 +344,9 @@ def get_optimizer(optimizer_name, model, **kwarg):
         optimizer = torch.optim.AdamW(model.parameters(), **kwarg)
     elif optimizer_name == 'SGD':
         optimizer = torch.optim.SGD(model.parameters(), **kwarg)
+    elif optimizer_name == 'RAdam':
+        optimizer = RAdam(model.parameters(), **kwarg)  
+        optimizer = Lookahead(optimizer)
     else:
         raise NotImplementedError
     return optimizer

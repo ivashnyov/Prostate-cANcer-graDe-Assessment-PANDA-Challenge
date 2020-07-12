@@ -1,99 +1,14 @@
 import numpy as np
 import os
-from pytorch_toolbelt.utils.torch_utils import tensor_from_rgb_image
 import albumentations as A
 from torch.utils.data import Dataset
 import torch
 import openslide
-from .utils import crop_around_mask, tile
+from .utils import tile, tileV2
 import json
 import pandas as pd
 import gc
 import pickle
-
-
-class ClassifcationDatasetSimpleTrain(Dataset):
-
-    CROP_HIGHEST_ZOOM = 32
-
-    def __init__(
-        self,
-        data_df,
-        transforms_json,
-        image_dir,
-        mask_dir,
-        crop_size=512,
-        *args,
-            **kwargs):
-        """Prepares pytorch dataset for training
-        Crops around mask and returns ISUP score for the slide
-
-        Args:
-            data_df (pd.DataFrame): data.frame with slides id and labels.
-            augmentations (albumentations.compose): augmentations.
-            image_dir (str): folder with images.
-            mask_dir (str): folder with masks.
-            crop_size(int): crop size around mask. Default: 512
-        Returns
-            Dataset
-
-        """
-        self.data_df = pd.read_csv(data_df)
-        self.image_dir = image_dir
-        self.mask_dir = mask_dir
-        self.crop_size = crop_size
-        self.transforms = self._get_aug(transforms_json)
-
-    def _get_aug(self, arg):
-        with open(arg) as f:
-            return A.from_dict(json.load(f))
-
-    def __len__(self):
-        return(len(self.data_df))
-
-    def __getitem__(self, idx):
-        """Will load the mask, get random coordinates around/with the mask,
-        load the image by coordinates
-        """
-        slide_id = self.data_df.image_id.values[idx]
-        isup_grade = self.data_df.isup_grade.values[idx]
-        mask = openslide.OpenSlide(os.path.join(
-            self.mask_dir,
-            f'{slide_id}_mask.tiff'))
-        image = openslide.OpenSlide(os.path.join(
-            self.image_dir,
-            f'{slide_id}.tiff'))
-        k = int(mask.level_downsamples[-1])
-        mask_full = mask.read_region(
-            (0, 0),
-            mask.level_count - 1,
-            mask.level_dimensions[-1])
-        mask_full = np.asarray(mask_full).astype(bool)[..., 0]
-        crop_coords = crop_around_mask(
-            mask_full,
-            ClassifcationDatasetSimpleTrain.CROP_HIGHEST_ZOOM,
-            ClassifcationDatasetSimpleTrain.CROP_HIGHEST_ZOOM)
-        image_slice = image.read_region(
-            (k*crop_coords['x_min'], k*crop_coords['y_min']),
-            0,
-            (self.crop_size, self.crop_size))
-        mask_slice = mask.read_region(
-            (k*crop_coords['x_min'], k*crop_coords['y_min']),
-            0,
-            (self.crop_size, self.crop_size))
-        mask_slice = np.asarray(mask_slice)[..., 0]
-        # if all < 2: isup_grade == 0
-        if (mask_slice < 2).all():
-            isup_grade = 0
-        image_slice = np.asarray(image_slice)[..., :3]
-        augmented = self.transforms(image=image_slice)
-        image = augmented['image']
-        # Add grade change based on mask values
-        # If only 1,0 in mask we pass grade = 0
-        # If there is cancer tissue, we pass isup_grade from labeling
-        data = {'features': tensor_from_rgb_image(image).float(),
-                'targets': torch.tensor(isup_grade)}
-        return(data)
 
 
 class ClassifcationDatasetMultiCrop(Dataset):
@@ -111,6 +26,9 @@ class ClassifcationDatasetMultiCrop(Dataset):
         label_smoothing=0.15,
         output_type='classification',
         use_saved=False,
+        effective_N=None,
+        resize_N=None,
+        custom_normalization=False,
         *args,
             **kwargs):
         """Prepares pytorch dataset for training
@@ -131,6 +49,11 @@ class ClassifcationDatasetMultiCrop(Dataset):
         self.mask_dir = mask_dir
         self.crop_size = crop_size
         self.N = N
+        self.resize_N = resize_N
+        if effective_N is None:
+            self.effective_N = N
+        else:
+            self.effective_N = effective_N
         self.transforms = self._get_aug(transforms_json)
         self.mean = mean
         self.std = std
@@ -138,6 +61,7 @@ class ClassifcationDatasetMultiCrop(Dataset):
         self.output_type = output_type
         self.label_smoothing = label_smoothing
         self.use_saved = use_saved
+        self.custom_normalization = custom_normalization
 
     def _get_aug(self, arg):
         with open(arg) as f:
@@ -188,10 +112,16 @@ class ClassifcationDatasetMultiCrop(Dataset):
             tiled_images))
         augmented = self.transforms(**tiled_images)
         tiled_images = [augmented[target] for target in target_names]
+        tiled_images = tiled_images[:self.effective_N]
+        if self.resize_N is not None:
+            tiled_images = [A.Resize(self.resize_N, self.resize_N)(image=image)['image']
+                            for image in tiled_images]
+        # TO DO: randomly select patches from pre-loaded
         tiled_images = np.stack(tiled_images)
-        tiled_images = (1.0 - tiled_images/255.0)
-        tiled_images = (tiled_images - self.mean)/self.std
-        assert len(tiled_images) == self.N
+        if self.custom_normalization:
+            tiled_images = (1.0 - tiled_images/255.0)
+            tiled_images = (tiled_images - self.mean)/self.std
+        assert len(tiled_images) == self.effective_N
         tiled_images = tiled_images.transpose(0, 3, 1, 2)
         # Fix outputs for each of the tasks
         # To do: move as separate function
@@ -585,4 +515,163 @@ class ClassifcationMultiCropInferenceDataset(Dataset):
 
         tiled_images = np.stack(tiled_images).transpose(0, 3, 1, 2)
         data = {'features': torch.from_numpy(tiled_images).float()}
+        return(data)
+
+
+class ClassifcationDatasetMultiCropOneImage(Dataset):
+    def __init__(
+        self,
+        df,
+        image_size,
+        image_folder,
+        level,
+        n_tiles=36,
+        tile_mode=0,
+        label_smoothing=0.15,
+        output_type='ordinal',
+        normalize=True,
+        rand=False,
+        transform_individual=None,
+        transform_global=None,
+        load_pickled_tiles=False,
+        pickled_tiles_folder=None
+            ):
+        self.df = df.reset_index(drop=True)
+        self.image_size = image_size
+        self.image_folder = image_folder
+        self.n_tiles = n_tiles
+        self.tile_mode = tile_mode
+        self.rand = rand
+        self.transform_individual = transform_individual
+        self.transform_global = transform_global
+        self.level = level
+        self.label_smoothing = label_smoothing
+        self.output_type = output_type
+        self.load_pickled_tiles = load_pickled_tiles
+        self.pickled_tiles_folder = pickled_tiles_folder
+        self.normalize = normalize
+
+    def __len__(self):
+        return self.df.shape[0]
+
+    def __getitem__(self, index):
+        row = self.df.iloc[index]
+        img_id = row.image_id
+        if self.load_pickled_tiles:
+            pickled_image = f"{img_id}_{self.level}_{self.n_tiles}_{self.image_size}.pkl"
+            with open(os.path.join(self.pickled_tiles_folder, pickled_image), 'rb') as f_:
+                tiles = pickle.load(f_)
+        else:
+            tiff_file = os.path.join(self.image_folder, f'{img_id}.tiff')
+            image = openslide.OpenSlide(tiff_file)
+            image = image.read_region(
+                (0, 0),
+                self.level,
+                image.level_dimensions[self.level])
+            image = np.asarray(image)[..., :3]
+            tiles, OK = tileV2(image, self.tile_mode, self.image_size, self.n_tiles)
+
+        if self.rand:
+            idxes = np.random.choice(list(range(self.n_tiles)), self.n_tiles, replace=False)
+        else:
+            idxes = list(range(self.n_tiles))
+
+        n_row_tiles = int(np.sqrt(self.n_tiles))
+        images = np.zeros((self.image_size * n_row_tiles, self.image_size * n_row_tiles, 3))
+        for h in range(n_row_tiles):
+            for w in range(n_row_tiles):
+                i = h * n_row_tiles + w
+                if len(tiles) > idxes[i]:
+                    this_img = tiles[idxes[i]]['img']
+                else:
+                    this_img = np.ones((self.image_size, self.image_size, 3)).astype(np.uint8) * 255
+                this_img = 255 - this_img
+                if self.transform_individual is not None:
+                    this_img = self.transform_individual(image=this_img)['image']
+                h1 = h * self.image_size
+                w1 = w * self.image_size
+                images[h1:h1+self.image_size, w1:w1+self.image_size] = this_img
+
+        if self.transform_global is not None:
+            images = self.transform_global(image=images)['image']
+        images = images.astype(np.float32)
+        if self.normalize:
+            images /= 255
+        images = images.transpose(2, 0, 1)
+        gleason = row.gleason_score
+        # Dirty way to prepare gleason score
+        gleason_to_number = {
+            '0': 0,
+            '3': 3,
+            '4': 4,
+            '5': 5
+        }
+        if gleason == 'negative':
+            gleason_major = 0
+            gleason_minor = 0
+        else:
+            gleason_major = gleason.split('+')[0]
+            gleason_major = gleason_to_number[gleason_major]
+            gleason_minor = gleason.split('+')[1]
+            gleason_minor = gleason_to_number[gleason_minor]
+        # Now return the label format we need
+        if self.output_type == 'regression':
+            isup_grade = np.expand_dims(row.isup_grade, 0)
+            isup_grade = torch.from_numpy(isup_grade).float()
+            gleason_major = np.expand_dims(gleason_major, 0)
+            gleason_major = torch.from_numpy(gleason_major).float()
+            gleason_minor = np.expand_dims(gleason_minor, 0)
+            gleason_minor = torch.from_numpy(gleason_minor).float()
+        elif self.output_type == 'classification':
+            isup_grade = torch.tensor(row.isup_grade)
+            gleason_major = torch.tensor(gleason_major)
+            gleason_minor = torch.tensor(gleason_minor)
+        elif self.output_type == 'ordinal':
+            isup_grade = np.zeros(5).astype(np.float32)
+            isup_grade[:row.isup_grade] = 1
+            gleason_major_ord = np.zeros(5).astype(np.float32)
+            gleason_major_ord[:gleason_major] = 1
+            gleason_major = gleason_major_ord
+            gleason_minor_ord = np.zeros(5).astype(np.float32)
+            gleason_minor_ord[:gleason_minor] = 1
+            gleason_minor = gleason_minor_ord
+            gleason_minor = torch.from_numpy(gleason_minor).float()
+            gleason_major = torch.from_numpy(gleason_major).float()
+            isup_grade = torch.from_numpy(isup_grade).float()
+        elif self.output_type == 'ohe_classification':
+            '''
+            We can make it asymetric if we use the assumption that
+            errors 4-5 are more likely than errors 0-5
+            '''
+            ohe_isup_grade = np.zeros(6)
+            ohe_gleason_major = np.zeros(6)
+            ohe_gleason_minor = np.zeros(6)
+
+            ohe_isup_grade[row.isup_grade] = 1
+            ohe_gleason_major[gleason_major] = 1
+            ohe_gleason_minor[gleason_minor] = 1
+
+            isup_grade = ohe_isup_grade
+            gleason_major = ohe_gleason_major
+            gleason_minor = ohe_gleason_minor
+
+            isup_grade = isup_grade * (1 - self.label_smoothing) + \
+                self.label_smoothing / 6
+            gleason_major = gleason_major * (1 - self.label_smoothing) + \
+                self.label_smoothing / 6
+            gleason_minor = gleason_minor * (1 - self.label_smoothing) + \
+                self.label_smoothing / 6
+
+            isup_grade = torch.from_numpy(isup_grade).float()
+            gleason_major = torch.from_numpy(gleason_major).float()
+            gleason_minor = torch.from_numpy(gleason_minor).float()
+        else:
+            raise NotImplementedError
+
+        data = {
+            'features': torch.from_numpy(images).float(),
+            'targets_isup': isup_grade,
+            'targets_gleason_major': gleason_major,
+            'targets_gleason_minor': gleason_minor,
+            }
         return(data)

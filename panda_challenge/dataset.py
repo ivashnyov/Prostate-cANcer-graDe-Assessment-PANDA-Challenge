@@ -534,7 +534,8 @@ class ClassifcationDatasetMultiCropOneImage(Dataset):
         transform_individual=None,
         transform_global=None,
         load_pickled_tiles=False,
-        pickled_tiles_folder=None
+        pickled_tiles_folder=None,
+        pseudo_labels_columns=None
             ):
         self.df = df.reset_index(drop=True)
         self.image_size = image_size
@@ -550,6 +551,7 @@ class ClassifcationDatasetMultiCropOneImage(Dataset):
         self.load_pickled_tiles = load_pickled_tiles
         self.pickled_tiles_folder = pickled_tiles_folder
         self.normalize = normalize
+        self.pseudo_labels_columns = pseudo_labels_columns
 
     def __len__(self):
         return self.df.shape[0]
@@ -674,4 +676,9 @@ class ClassifcationDatasetMultiCropOneImage(Dataset):
             'targets_gleason_major': gleason_major,
             'targets_gleason_minor': gleason_minor,
             }
+        if self.pseudo_labels_columns is not None:
+            pseudo_labels = row[self.pseudo_labels_columns].values
+        data['targets_isup_pseudolabels'] = torch.from_numpy(pseudo_labels).float()
         return(data)
+
+

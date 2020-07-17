@@ -677,7 +677,7 @@ class ClassifcationDatasetMultiCropOneImage(Dataset):
             'targets_gleason_minor': gleason_minor,
             }
         if self.pseudo_labels_columns is not None:
-            pseudo_labels = row[self.pseudo_labels_columns].values
+            pseudo_labels = row[self.pseudo_labels_columns].values.astype(float)
         data['targets_isup_pseudolabels'] = torch.from_numpy(pseudo_labels).float()
         return(data)
 
